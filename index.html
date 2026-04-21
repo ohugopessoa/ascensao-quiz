@@ -5302,7 +5302,8 @@ function QuizDiagnostico() {
 
  useEffect(() => {
  if (cQ && cQ.type === "transition") {
- const t = setTimeout(goNext, 3000);
+ // v39: aumentado de 3s pra 6.5s — dava pra ler mal antes; agora tempo confortável + pode clicar pra avançar
+ const t = setTimeout(goNext, 6500);
  return () => clearTimeout(t);
  }
  }, [step]);
@@ -5341,8 +5342,9 @@ function QuizDiagnostico() {
  .next-btn:disabled{opacity:.3;cursor:not-allowed}
  .progress-bar{height:3px;background:${C.blueGlow2};border-radius:2px;overflow:hidden;margin-bottom:40px}
  .progress-fill{height:100%;background:linear-gradient(90deg,${C.blue},${C.blueDark});transition:width .5s;border-radius:2px}
- .transition-screen{display:flex;align-items:center;justify-content:center;min-height:60vh;text-align:center;padding:40px}
+ .transition-screen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;text-align:center;padding:40px;cursor:pointer}
  .transition-text{font-size:22px;line-height:1.6;color:${C.textMid};max-width:500px;font-style:italic;animation:fadeIn .8s ease}
+ .transition-hint{font-family:'Outfit',sans-serif;font-size:12px;color:${C.textDim};letter-spacing:1.5px;text-transform:uppercase;margin-top:28px;opacity:0.5;animation:fadeIn 1.6s ease}
  @keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
  .text-input{width:100%;padding:16px 20px;border:1px solid ${C.blueBorder};border-radius:12px;background:${C.card};color:${C.text};font-family:'Outfit',sans-serif;font-size:16px;outline:none;transition:border-color .3s}
  .text-input:focus{border-color:${C.blue}}
@@ -5381,7 +5383,10 @@ function QuizDiagnostico() {
  <AscensaoHeader compact />
  <div className="progress-bar"><div className="progress-fill" style={{ width: `${(qNum / TOTAL_Q) * 100}%` }} /></div>
  {cQ && cQ.type === "transition" ? (
- <div className="transition-screen"><p className="transition-text">{cQ.text}</p></div>
+ <div className="transition-screen" onClick={goNext} role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") goNext(); }}>
+ <p className="transition-text">{cQ.text}</p>
+ <p className="transition-hint">toque pra continuar</p>
+ </div>
  ) : cQ ? (
  <div className={`q-fade ${anim ? "q-fade-out" : ""}`} key={step}>
  <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 500, color: C.blue, letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>{cQ.label}</p>
