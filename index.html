@@ -5278,6 +5278,19 @@ function QuizDiagnostico() {
  }, 300);
  };
 
+ // v39: voltar pergunta (pula transições)
+ const goBack = () => {
+ if (step <= 0) return;
+ setAnim(true);
+ setTimeout(() => {
+ let prev = step - 1;
+ while (prev > 0 && QUESTIONS[prev]?.type === "transition") prev--;
+ setStep(prev);
+ setAnim(false);
+ if (ref.current) ref.current.scrollTo(0, 0);
+ }, 300);
+ };
+
  const setA = (id, v) => setAnswers(p => ({ ...p, [id]: v }));
  const canGo = () => {
  if (!cQ || cQ.type === "transition") return true;
@@ -5350,7 +5363,21 @@ function QuizDiagnostico() {
  </div>
  </div>
  ) : (
- <div style={{ maxWidth: 600, margin: "0 auto", padding: "20px 24px 60px" }}>
+ <div style={{ maxWidth: 600, margin: "0 auto", padding: "20px 24px 60px", position: "relative" }}>
+ {step > 0 && (
+ <button
+ type="button"
+ onClick={goBack}
+ aria-label="Voltar para a pergunta anterior"
+ title="Voltar"
+ style={{ position: "absolute", top: 18, left: 14, background: "transparent", border: "none", color: C.textDim, fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 500, letterSpacing: 1, cursor: "pointer", padding: "6px 10px", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 6, opacity: 0.6, transition: "opacity .2s, color .2s" }}
+ onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = C.textMid; }}
+ onMouseLeave={e => { e.currentTarget.style.opacity = 0.6; e.currentTarget.style.color = C.textDim; }}
+ >
+ <span aria-hidden="true" style={{ fontSize: 14 }}>←</span>
+ Voltar
+ </button>
+ )}
  <AscensaoHeader compact />
  <div className="progress-bar"><div className="progress-fill" style={{ width: `${(qNum / TOTAL_Q) * 100}%` }} /></div>
  {cQ && cQ.type === "transition" ? (
