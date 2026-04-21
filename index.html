@@ -1709,7 +1709,7 @@ function montarPredicoes(perfilId, demo, answers, padrao) {
  }
 
  // Concatena base + cruzadas, limita em 12 pra não fatigar o leitor
- return [...base...add].slice(0, 12);
+ return [...base, ...add].slice(0, 12);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -5127,7 +5127,7 @@ function gerarInferencias(perfilId, eixos, demo, answers) {
  // S6: últimos 5 (antes 4)
  // ocultos: máximo 4 (antes 3)
  if (inf.s2.length > 5) inf.s2 = inf.s2.slice(-5);
- if (inf.s3.length > 5) inf.s3 = [...inf.s3.slice(0, 2)...inf.s3.slice(2).slice(-3)];
+ if (inf.s3.length > 5) inf.s3 = [...inf.s3.slice(0, 2), ...inf.s3.slice(2).slice(-3)];
  if (inf.s4.length > 5) inf.s4 = inf.s4.slice(-5);
  if (inf.s6.length > 5) inf.s6 = inf.s6.slice(-5);
  if (inf.ocultos.length > 4) inf.ocultos = inf.ocultos.slice(0, 4);
@@ -5521,7 +5521,7 @@ function DiagnosticoOutput({ answers, result }) {
  { divino: "o sistema", campo: "o padrão", pratica: "método" };
 
  // ─── Render helpers ───
- const P = (t, s = {}) => t ? <p style={{ fontSize: 19, lineHeight: 1.85, color: C.text, marginBottom: 18...s }}>{t}</p> : null;
+ const P = (t, s = {}) => t ? <p style={{ fontSize: 19, lineHeight: 1.85, color: C.text, marginBottom: 18, ...s }}>{t}</p> : null;
  const PB = (t) => t ? <p style={{ fontSize: 19, lineHeight: 1.85, color: "#fff", marginBottom: 18, fontWeight: 600 }}>{t}</p> : null;
  const HL = (t) => (<div style={{ background: C.blueGlow, borderLeft: `3px solid ${C.blue}`, padding: "18px 22px", borderRadius: "0 12px 12px 0", margin: "20px 0", fontSize: 19, fontStyle: "italic", color: C.textMid, lineHeight: 1.6 }}>{t}</div>);
  const SEC = (title, ch) => (<div style={{ marginBottom: 52 }}>{title && <h3 style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, fontWeight: 600, color: C.blue, letterSpacing: 3, textTransform: "uppercase", marginBottom: 22 }}>{title}</h3>}{ch}</div>);
@@ -5630,7 +5630,7 @@ function DiagnosticoOutput({ answers, result }) {
  return (
  <div key={i} style={{ marginBottom: 14 }}>
  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }} title={tooltip}>
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: isLider ? "#fff" : C.text, fontWeight: isLider ? 700 : 500, flex: 1...blurStyle }}>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: isLider ? "#fff" : C.text, fontWeight: isLider ? 700 : 500, flex: 1, ...blurStyle }}>
  {NOME_CAMADA_CURTO[i]}
  </span>
  {isLider && score >= 1.6 && (
@@ -5638,7 +5638,7 @@ function DiagnosticoOutput({ answers, result }) {
  A mais ativa
  </span>
  )}
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: cor, fontWeight: 700, width: 34, textAlign: "right"...blurStyle }}>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: cor, fontWeight: 700, width: 34, textAlign: "right", ...blurStyle }}>
  {score.toFixed(1)}
  </span>
  </div>
@@ -5912,6 +5912,7 @@ function DiagnosticoOutput({ answers, result }) {
  </div>
  );
 }
+
 
 
 // ─── RENDER ─────────────────────────────────────────────────────
