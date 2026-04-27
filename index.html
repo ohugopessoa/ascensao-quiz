@@ -4032,9 +4032,17 @@ function calcularScoresPerfis(eixos, answers) {
  s.A13 = (local === "fora") ? 20 : 0;
  s.A27 = eventos.includes("diagnostico") ? 18 : 0;
  s.A21 = ((q_luto === "parceiro" || civil === "viuvo") && idadeNum >= 45) ? 18 : 0;
- // v35 W1-FIX3: A22 aceita também eventos[violencia] como sinal alternativo ao q_abuso
- s.A22 = (["cedo","duvido","menor"].includes(q_abuso) && idadeNum >= 30) ? 17 : 0;
- if (s.A22 === 0 && eventos.includes("violencia") && idadeNum >= 30) s.A22 = 15;
+ // v40 W1: gate A22 recalibrado por evidência empírica (CSV 4.641 amostras: A22 estava em 39,4%; 78,8% sem dor relacional declarada).
+ // Antes: gate único de 17 pontos absolutos com q_abuso fraco. Agora: peso base baixo + bônus cruzados que exigem confirmação.
+ s.A22 = 0;
+ if (q_abuso === "cedo" && idadeNum >= 30) s.A22 += 8; // sinal mais leve
+ if (q_abuso === "duvido" && idadeNum >= 30) s.A22 += 11; // gaslighting clássico
+ if (q_abuso === "menor" && idadeNum >= 30) s.A22 += 11; // diminuição sistemática
+ if (s.A22 > 0 && superficie === "relacional") s.A22 += 5; // confirmação primária da dor
+ if (s.A22 > 0 && superficie_secundaria === "relacional") s.A22 += 3;
+ if (s.A22 > 0 && (answers.P25 || 0) >= 4) s.A22 += 2; // medo de prosperar
+ if (s.A22 > 0 && (answers.P27 || 0) >= 4) s.A22 += 2; // recuo na conexão
+ if (eventos.includes("violencia") && idadeNum >= 30) s.A22 += 14; // evento direto, gate alto
  // v35 W1-FIX3: A20 penalizado se há sinais de abuso/violência (perfil correto é A22 nesses casos)
  s.A20 = (q_prof_cura !== "nao" && idadeNum >= 30) ? 16 : 0;
  if (q_abuso !== "nenhuma" && q_abuso !== "nao_dizer") s.A20 -= 5;
@@ -4278,8 +4286,11 @@ function classificarPerfil(eixos, answers) {
  else if (margemScore >= 2) confianca = "media";
  else confianca = "composta";
 
- // Secundário só se margem for pequena (composição real)
- const secundario = (confianca === "composta" && secundarioCandidato !== primario) ? secundarioCandidato : null;
+ // v40 W2: secundário atribuído sempre que score >= 55% do top (antes: só "composta" → 80,8% sem secundário).
+ // Permite nuance pra ~50-70% dos casos, alinhado com psicometria saudável.
+ const topScore = sorted[0][1];
+ const secScore = sorted[1] ? sorted[1][1] : 0;
+ const secundario = (secScore > 0 && secScore >= 0.55 * topScore && secundarioCandidato !== primario) ? secundarioCandidato : null;
 
  // margem em níveis ainda é útil pra narrativa ("duas camadas")
  const margem = niveis_sorted[0].score - niveis_sorted[1].score;
