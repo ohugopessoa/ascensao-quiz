@@ -2272,6 +2272,27 @@ const JANELA_CAMADA = {
  4: "Durante toda a vida",
 };
 
+// v40 redesign B4: potencial por camada (substitui o EU SOU declarativo do S4)
+// Cada frase é uma projeção do que se libera quando aquela camada específica é integrada.
+// Não cita perfil, fala da camada — alinhado com a tese do redesign.
+const POTENCIAL_POR_CAMADA = {
+ 0: "uma base nervosa sem alarme crônico — sentir que existir está ok antes de qualquer prova",
+ 1: "vínculo que se forma sem disparar evitação automática — proximidade deixa de ser ameaça",
+ 2: "ações próprias sem o filtro de 'gente como nós para aqui' — a régua interna deixa de decidir por você",
+ 3: "discernimento próprio sem precisar de aval da autoridade que te formou — fé, escolha e direção em primeira pessoa",
+ 4: "identidade que não cabe na régua coletiva que você herdou — o teto da cultura para de ser o seu teto",
+};
+
+// v40 redesign B2: faixa de intensidade pra colorir/categorizar score 0-4.5
+function faixaIntensidade(score) {
+ if (score >= 3.0) return "alta";
+ if (score >= 1.5) return "media";
+ return "baixa";
+}
+
+// v40 redesign B2: limiar pra "camada ativa" (mostra detalhamento em B2; abaixo vai pra rodapé de B1)
+const LIMIAR_CAMADA_ATIVA = 1.5;
+
 // Vetores da interferência por nível, extraídos do mecanismo UMS
 // Vetor ativo: o que instalou por ação direta
 // Vetor passivo: o que instalou por osmose, sem palavra dita
@@ -2887,6 +2908,30 @@ const MANIFESTACAO_PERFIL_CAMADA = {
 // Helper: retorna array de frases perfil × nível ou null
 function manifestacaoPerfilCamada(perfilId, nivel) {
  return MANIFESTACAO_PERFIL_CAMADA[perfilId]?.[nivel] || null;
+}
+
+// v40 redesign: seleciona conteúdo da camada com fallback em cadeia
+// Garante que toda combinação (perfilId, nivel) retorne algo, sem deixar buraco no render.
+// Ordem de prioridade: manifestação específica → camadas-por-perfil → narrativa-por-intensidade → label
+function selecionarConteudoCamada(perfilId, nivel, score) {
+ const faixa = faixaIntensidade(score);
+ // 1. Manifestação rica perfil×camada (3 frases: rota, código, manifestação hoje)
+ const manif = MANIFESTACAO_PERFIL_CAMADA[perfilId]?.[nivel];
+ if (manif && Array.isArray(manif) && manif.length >= 1) {
+ return { manifestacao: manif, fonte: "manifestacao" };
+ }
+ // 2. Narrativa específica perfil×camada (1 parágrafo)
+ const camadaPerfil = CAMADAS_POR_PERFIL[perfilId]?.[nivel];
+ if (camadaPerfil && typeof camadaPerfil === "string") {
+ return { manifestacao: [camadaPerfil], fonte: "camadas_por_perfil" };
+ }
+ // 3. Narrativa genérica por intensidade
+ const narrativa = NARRATIVAS_NIVEL[nivel]?.[faixa];
+ if (narrativa) {
+ return { manifestacao: [narrativa], fonte: "narrativa_generica" };
+ }
+ // 4. Último recurso: label da camada
+ return { manifestacao: [LABEL_CAMADA[nivel] || ""], fonte: "label" };
 }
 
 
@@ -4035,11 +4080,12 @@ function calcularScoresPerfis(eixos, answers) {
  // v40 W1: gate A22 recalibrado por evidência empírica (CSV 4.641 amostras: A22 estava em 39,4%; 78,8% sem dor relacional declarada).
  // Antes: gate único de 17 pontos absolutos com q_abuso fraco. Agora: peso base baixo + bônus cruzados que exigem confirmação.
  s.A22 = 0;
+ const supSec = eixos.superficie_secundaria;
  if (q_abuso === "cedo" && idadeNum >= 30) s.A22 += 8; // sinal mais leve
  if (q_abuso === "duvido" && idadeNum >= 30) s.A22 += 11; // gaslighting clássico
  if (q_abuso === "menor" && idadeNum >= 30) s.A22 += 11; // diminuição sistemática
  if (s.A22 > 0 && superficie === "relacional") s.A22 += 5; // confirmação primária da dor
- if (s.A22 > 0 && superficie_secundaria === "relacional") s.A22 += 3;
+ if (s.A22 > 0 && supSec === "relacional") s.A22 += 3;
  if (s.A22 > 0 && (answers.P25 || 0) >= 4) s.A22 += 2; // medo de prosperar
  if (s.A22 > 0 && (answers.P27 || 0) >= 4) s.A22 += 2; // recuo na conexão
  if (eventos.includes("violencia") && idadeNum >= 30) s.A22 += 14; // evento direto, gate alto
@@ -4306,6 +4352,8 @@ function classificarPerfil(eixos, answers) {
 // ═══════════════════════════════════════════════════════════════
 
 function inferirOculto(answers, demo, eixos) {
+ // v40 redesign: cada oculto retorna {texto, camadaAlvo} pra B2 alocar dentro da camada correta.
+ // camadaAlvo: 0=Pré-Natal, 1=Pré-Verbal, 2=Verbal Primário, 3=Vínculos de Autoridade, 4=Campo Coletivo, -1=transversal (não pertence a uma camada específica)
  const out = [];
  const a = answers;
  const { niveis, padrao, superficie, superficie_secundaria, p8, p9, cronicidade_label } = eixos;
@@ -4314,123 +4362,123 @@ function inferirOculto(answers, demo, eixos) {
  const eventos = a.P23_EVENTO || [];
  const p9arr = (a.P9 || []).filter(v => v !== "nada");
 
- // R1: Cuidadora herdada (mulher que carrega casa sem retaguarda, replicou o modelo materno)
+ // R1: Cuidadora herdada → camada 2 (modelo materno verbal/observado)
  if (["B","C","E"].includes(a.BIO1) && demo.gen === "F" &&
  ["casado","divorciado"].includes(demo.civil) &&
  ["casal_filhos","solo"].includes(demo.familia)) {
- out.push("Você cresceu observando uma mulher sustentar emocionalmente uma casa sem retaguarda, e sem saber que estava sendo treinada, virou essa mulher. A diferença entre vocês é só uma: hoje você sabe que aprendeu. Ainda não sabe o que fazer com o código.");
+ out.push({ camadaAlvo: 2, texto: "Você cresceu observando uma mulher sustentar emocionalmente uma casa sem retaguarda, e sem saber que estava sendo treinada, virou essa mulher. A diferença entre vocês é só uma: hoje você sabe que aprendeu. Ainda não sabe o que fazer com o código." });
  }
 
- // R2: Profissional de cura com passado abusivo (vocação + função ferida operando juntas)
+ // R2: Profissional de cura com passado abusivo → camada 3 (relação abusiva = autoridade afetiva)
  if (["saude","alternativa","educacao"].includes(a.Q_PROFISSIONAL_CURA) &&
  a.Q_RELACAO_ABUSIVA && a.Q_RELACAO_ABUSIVA !== "nenhuma" &&
  demo.gen === "F") {
- out.push("Você escolheu uma profissão de cuidado por dois motivos que nunca separou: o dom real, e a identidade que diz que a sua função no mundo é segurar a dor dos outros. A relação abusiva que atravessou a sua vida não foi acidente, foi continuidade dessa função que o código já te reservou antes de você escolher qualquer coisa.");
+ out.push({ camadaAlvo: 3, texto: "Você escolheu uma profissão de cuidado por dois motivos que nunca separou: o dom real, e a identidade que diz que a sua função no mundo é segurar a dor dos outros. A relação abusiva que atravessou a sua vida não foi acidente, foi continuidade dessa função que o código já te reservou antes de você escolher qualquer coisa." });
  }
 
- // R3: Ensina o que não faz (inteligência alta + ensino + paralisia)
+ // R3: Ensina o que não faz → camada 2 (saber=virtude familiar)
  if (["D","E"].includes(p8) && (a.Q_ENSINA || 0) >= 3 &&
  ((a.P32 || 0) >= 3 || p9arr.length >= 3)) {
- out.push("Você ensina pros outros o caminho de sair do lugar onde continua. Isso não é hipocrisia, é o sistema de defesa usando a sua inteligência pra te manter útil pros outros enquanto te mantém seguro no lugar que conhece. Ensinar virou o substituto socialmente aceitável de fazer.");
+ out.push({ camadaAlvo: 2, texto: "Você ensina pros outros o caminho de sair do lugar onde continua. Isso não é hipocrisia, é o sistema de defesa usando a sua inteligência pra te manter útil pros outros enquanto te mantém seguro no lugar que conhece. Ensinar virou o substituto socialmente aceitável de fazer." });
  }
 
- // R4: Fé adulta × fé infantil operando em paralelo (culpa que teologia não resolve)
+ // R4: Fé adulta × fé infantil → camada 3 (autoridade religiosa)
  if (["catolico","evangelico","espirita"].includes(a.Q_RELIGIAO) &&
  (a.P17 || 0) >= 3 && rendaAlta &&
  ["financeiro","emocional","espiritual"].includes(superficie)) {
- out.push("A sua fé opera em duas camadas. A consciente é amadurecida, generosa, reflexiva. A subterrânea ainda é a da infância, e ela ativa cada vez que o dinheiro cresce. Por isso a culpa não passa com mais teologia: ela mora numa camada que a teologia não acessa.");
+ out.push({ camadaAlvo: 3, texto: "A sua fé opera em duas camadas. A consciente é amadurecida, generosa, reflexiva. A subterrânea ainda é a da infância, e ela ativa cada vez que o dinheiro cresce. Por isso a culpa não passa com mais teologia: ela mora numa camada que a teologia não acessa." });
  }
 
- // R5: Próximo relacionamento vai repetir (divórcio + superfície relacional/familiar + nivel 1 ativo)
+ // R5: Próximo relacionamento vai repetir → camada 1 (Pré-Verbal, código relacional)
  if (demo.civil === "divorciado" && ["relacional","familiar"].includes(superficie) &&
  niveis[1] >= 2.4) {
- out.push("Seu casamento não terminou só porque alguém saiu. Terminou porque uma estrutura construída antes de vocês se conhecerem bateu no limite interno dela. Se o código não mudar até o próximo vínculo, ele vai bater no mesmo limite, por motivos que vão parecer inéditos, mas têm a mesma arquitetura.");
+ out.push({ camadaAlvo: 1, texto: "Seu casamento não terminou só porque alguém saiu. Terminou porque uma estrutura construída antes de vocês se conhecerem bateu no limite interno dela. Se o código não mudar até o próximo vínculo, ele vai bater no mesmo limite, por motivos que vão parecer inéditos, mas têm a mesma arquitetura." });
  }
 
- // R6: Herança de vínculo perigoso (epigenética + perda precoce + recuo atual)
+ // R6: Herança de vínculo perigoso → camada 0 (Pré-Natal, epigenética)
  if ((a.P_ANCESTRAL || 0) >= 3 && ["B","C","E","F"].includes(a.BIO1) &&
  (eventos.includes("perda") || a.P_TEMPO === "sempre") &&
  (a.P27 || 0) >= 3) {
- out.push("Há uma linha no seu sistema nervoso que antecede você: antes das suas memórias, antes dos seus pais, alguém da sua linhagem aprendeu que vínculo é perigoso. E passou isso pra você pelo corpo, não pela palavra. O seu recuo quando a intimidade se aproxima não é escolha, é herança operando no presente.");
+ out.push({ camadaAlvo: 0, texto: "Há uma linha no seu sistema nervoso que antecede você: antes das suas memórias, antes dos seus pais, alguém da sua linhagem aprendeu que vínculo é perigoso. E passou isso pra você pelo corpo, não pela palavra. O seu recuo quando a intimidade se aproxima não é escolha, é herança operando no presente." });
  }
 
- // R7: Sucesso esvaziado (renda alta + superfície emocional/relacional/espiritual + P_META)
+ // R7: Sucesso esvaziado → camada 2 (busca de reconhecimento dos pais)
  if (rendaAlta && ["empresario","autonomo"].includes(demo.ocup) &&
  ["emocional","relacional","espiritual"].includes(superficie) &&
  (a.P_META || 0) >= 3) {
- out.push("Você construiu o que imaginou que traria paz. Chegou. Não trouxe. Essa ausência de chegada revela que o alvo nunca foi o dinheiro, foi o reconhecimento que você esperava receber depois de chegar. E o reconhecimento não vem de fora porque o código interno não autoriza recebê-lo, mesmo quando chega.");
+ out.push({ camadaAlvo: 2, texto: "Você construiu o que imaginou que traria paz. Chegou. Não trouxe. Essa ausência de chegada revela que o alvo nunca foi o dinheiro, foi o reconhecimento que você esperava receber depois de chegar. E o reconhecimento não vem de fora porque o código interno não autoriza recebê-lo, mesmo quando chega." });
  }
 
- // R8: Duplo exílio (imigração + superfície composta + cronicidade)
+ // R8: Duplo exílio → camada 4 (Campo Coletivo cultural)
  if (a.Q_LOCAL === "fora" && superficie_secundaria &&
  ["5_10","recente","decada_mais"].includes(a.P_TEMPO)) {
- out.push("Você carrega duas culturas que não conversam direito. A de origem não te reconhece mais, a nova nunca vai te reconhecer totalmente. A identidade ficou num entre-lugar que não tem nome próprio, e qualquer recalibração precisa incluir esse duplo exílio, não só o externo (país) ou só o interno (identidade).");
+ out.push({ camadaAlvo: 4, texto: "Você carrega duas culturas que não conversam direito. A de origem não te reconhece mais, a nova nunca vai te reconhecer totalmente. A identidade ficou num entre-lugar que não tem nome próprio, e qualquer recalibração precisa incluir esse duplo exílio, não só o externo (país) ou só o interno (identidade)." });
  }
 
- // R9: Chamado não-vivido (vocação alta + ensina + idade adulta)
+ // R9: Chamado não-vivido → camada 2 (autoridade familiar instalou "espera tua vez")
  if ((a.Q_VOCACAO || 0) >= 3 && (a.Q_ENSINA || 0) >= 3 && idadeNum >= 35) {
- out.push("Você sabe qual é o seu chamado. Ainda não viveu dentro dele. E está ensinando pros outros o que não trilhou, o que produz uma clareza irônica: pra ensinar você precisa articular, e cada articulação é uma pontada de 'por que eu não vivi isso?'. A pergunta fica mais forte. A resposta fica mais cara a cada ano que passa.");
+ out.push({ camadaAlvo: 2, texto: "Você sabe qual é o seu chamado. Ainda não viveu dentro dele. E está ensinando pros outros o que não trilhou, o que produz uma clareza irônica: pra ensinar você precisa articular, e cada articulação é uma pontada de 'por que eu não vivi isso?'. A pergunta fica mais forte. A resposta fica mais cara a cada ano que passa." });
  }
 
- // R10: Parou de projetar (cronicidade crônica + 'nunca me permito projetar')
+ // R10: Parou de projetar → transversal (meta-cognitivo, não pertence a uma camada)
  if (cronicidade_label === "crônico" && a.P_PROJ === "nao_sei") {
- out.push("Você parou de se projetar no futuro porque a projeção honesta entrega uma imagem que não quer ver. Isso não é falta de ambição, é autoproteção. O sistema nervoso decidiu que antecipar o provável dói mais que viver o presente sem nome. Por isso pensar nos próximos 10 anos te cansa mais que viver o dia de hoje.");
+ out.push({ camadaAlvo: -1, texto: "Você parou de se projetar no futuro porque a projeção honesta entrega uma imagem que não quer ver. Isso não é falta de ambição, é autoproteção. O sistema nervoso decidiu que antecipar o provável dói mais que viver o presente sem nome. Por isso pensar nos próximos 10 anos te cansa mais que viver o dia de hoje." });
  }
 
- // R11: Filhos na linha (casal_filhos + crônico + financeiro/carreira)
+ // R11: Filhos na linha → transversal (efeito futuro, atravessa camadas)
  if (demo.familia === "casal_filhos" && cronicidade_label === "crônico" &&
  ["financeiro","carreira"].includes(superficie)) {
- out.push("Seus filhos absorveram parte do código antes mesmo de você saber que ele existia. Eles estão crescendo observando onde 'gente como a gente' para, e construindo a régua interna dentro desse ponto. Interromper agora não é só sobre você, é sobre cortar a linha antes que passe pra geração seguinte.");
+ out.push({ camadaAlvo: -1, texto: "Seus filhos absorveram parte do código antes mesmo de você saber que ele existia. Eles estão crescendo observando onde 'gente como a gente' para, e construindo a régua interna dentro desse ponto. Interromper agora não é só sobre você, é sobre cortar a linha antes que passe pra geração seguinte." });
  }
 
- // R12: Anestesia somática específica (W4, fallback P_CORPO_AVISA=nenhum + P_SOMA=F)
+ // R12: Anestesia somática específica → camada 1 (Pré-Verbal, dissociação corporal)
  if (a.P_CORPO_AVISA === "nenhum" && a.P_SOMA === "F") {
- out.push("Você não percebe quando o corpo avisa. Isso não significa ausência de aviso, significa que o aparelho aprendeu a desconectar o sinal. Essa anestesia específica se instala quando, por anos, o corpo avisou e ninguém ouviu (você ou o ambiente de origem). O sistema aprendeu: avisar não muda nada, vamos economizar energia. Por isso hoje o que você sente é 'nada', e 'nada' parece calma. É distância.");
+ out.push({ camadaAlvo: 1, texto: "Você não percebe quando o corpo avisa. Isso não significa ausência de aviso, significa que o aparelho aprendeu a desconectar o sinal. Essa anestesia específica se instala quando, por anos, o corpo avisou e ninguém ouviu (você ou o ambiente de origem). O sistema aprendeu: avisar não muda nada, vamos economizar energia. Por isso hoje o que você sente é 'nada', e 'nada' parece calma. É distância." });
  }
 
- // R13: Voz interna contradiz projeção (P_VOZ=minha_hora + P_PROJ negativa)
+ // R13: Voz interna contradiz projeção → transversal (paradoxo declarativo)
  if (a.P_VOZ === "minha_hora" &&
  ["parecida_pior","estagnada","resignada"].includes(a.P_PROJ)) {
- out.push("'Minha hora ainda vai chegar' é o que a mente consciente diz. 'Parecida com hoje, um pouco pior' é o que a sua projeção honesta mostra. As duas frases moram na mesma pessoa e nunca se encontram, a mente prometeu um futuro que a projeção contradiz. Enquanto operarem em paralelo, você vai sentir que está esperando algo que o sistema de defesa já sabe que não vem.");
+ out.push({ camadaAlvo: -1, texto: "'Minha hora ainda vai chegar' é o que a mente consciente diz. 'Parecida com hoje, um pouco pior' é o que a sua projeção honesta mostra. As duas frases moram na mesma pessoa e nunca se encontram, a mente prometeu um futuro que a projeção contradiz. Enquanto operarem em paralelo, você vai sentir que está esperando algo que o sistema de defesa já sabe que não vem." });
  }
 
- // R14: Cuidador de corpo com corpo falhando (superfície saúde + profissional saúde)
+ // R14: Cuidador de corpo com corpo falhando → camada 2 (modelo cuidador)
  if (superficie === "saude" && a.Q_PROFISSIONAL_CURA === "saude") {
- out.push("Você cuida do corpo dos outros e sente o seu falhando. Isso não é ironia, é informação. Profissionais da saúde desenvolvem uma dissociação funcional: 'eu sei sobre corpo, o meu pode esperar'. O corpo não espera infinitamente. Quando ele fala, fala na língua que você só reconhece quando é professor, não quando é aluno.");
+ out.push({ camadaAlvo: 2, texto: "Você cuida do corpo dos outros e sente o seu falhando. Isso não é ironia, é informação. Profissionais da saúde desenvolvem uma dissociação funcional: 'eu sei sobre corpo, o meu pode esperar'. O corpo não espera infinitamente. Quando ele fala, fala na língua que você só reconhece quando é professor, não quando é aluno." });
  }
 
- // R15: Solidão projeto (solteiro + sozinho + superfície relacional + evitação)
+ // R15: Solidão projeto → camada 1 (Pré-Verbal, vínculo)
  if (demo.civil === "solteiro" && demo.familia === "sozinho" &&
  superficie === "relacional" && ((a.P27 || 0) >= 3 || (a.P18 || 0) >= 3)) {
- out.push("Morar sozinho(a) e querer vínculo operam em conflito silencioso: intimidade te atrai e te ameaça. A solução que o sistema de defesa encontrou foi construir um ambiente onde a ameaça não chega, mas você também não chega. A solidão virou projeto antes de virar queixa. O projeto está funcionando. Por isso é tão difícil mudar.");
+ out.push({ camadaAlvo: 1, texto: "Morar sozinho(a) e querer vínculo operam em conflito silencioso: intimidade te atrai e te ameaça. A solução que o sistema de defesa encontrou foi construir um ambiente onde a ameaça não chega, mas você também não chega. A solidão virou projeto antes de virar queixa. O projeto está funcionando. Por isso é tão difícil mudar." });
  }
 
- // ═══ REGRAS UNIVERSAIS (v38 W2), cobrem perfis canônicos simples sem combinações avançadas ═══
+ // ═══ REGRAS UNIVERSAIS (v38 W2), cobrem perfis canônicos simples ═══
 
- // R16, Repetidor crônico que já nomeia o ciclo (paradoxo: reconhecer ≠ interromper)
+ // R16: Repetidor crônico que nomeia o ciclo → transversal (meta-cognitivo)
  if (padrao === "repetidor" && cronicidade_label === "crônico") {
- out.push("Você reconhece o ciclo. Consegue descrever ele com clareza, já falou dele em terapia, com amigos, consigo mesmo. Reconhecer é diferente de interromper. Esse é exatamente o tipo de padrão que se sofistica quanto mais você o nomeia sem acessá-lo na camada onde foi instalado: a mente aprende a explicar, o código continua operando por baixo da explicação.");
+ out.push({ camadaAlvo: -1, texto: "Você reconhece o ciclo. Consegue descrever ele com clareza, já falou dele em terapia, com amigos, consigo mesmo. Reconhecer é diferente de interromper. Esse é exatamente o tipo de padrão que se sofistica quanto mais você o nomeia sem acessá-lo na camada onde foi instalado: a mente aprende a explicar, o código continua operando por baixo da explicação." });
  }
 
- // R17, Paralisado com capacidade comprovada (o bloqueio protege, não falta capacidade)
+ // R17: Paralisado com capacidade → camada 2 ("quem é você pra")
  else if (padrao === "paralisado" && ["financeiro","carreira"].includes(superficie) &&
  ["medio","alto"].includes(demo.financeiro)) {
- out.push("A capacidade está instalada. O conhecimento está instalado. Seu histórico prova que você SABE fazer. A paralisia não é técnica, ela protege a identidade de virar alguém que a régua interna não autoriza. Agir avança você além do teto; parar mantém você dentro do perímetro conhecido. O sistema nervoso prefere conhecido medíocre a desconhecido melhor.");
+ out.push({ camadaAlvo: 2, texto: "A capacidade está instalada. O conhecimento está instalado. Seu histórico prova que você SABE fazer. A paralisia não é técnica, ela protege a identidade de virar alguém que a régua interna não autoriza. Agir avança você além do teto; parar mantém você dentro do perímetro conhecido. O sistema nervoso prefere conhecido medíocre a desconhecido melhor." });
  }
 
- // R18, Anestesiado de longa data (desligar foi proteção histórica, virou default)
+ // R18: Anestesiado de longa data → camada 1 (desligar pra sobreviver)
  else if (padrao === "anestesiado" && ["decada_mais","sempre"].includes(a.P_TEMPO) && idadeNum >= 40) {
- out.push("A desconexão que hoje parece 'jeito de ser' tem data de instalação. Começou como proteção num momento em que sentir doía demais pra função continuar. O problema é que o sistema nervoso não distingue 'proteção necessária' de 'economia permanente', ele manteve a anestesia mesmo depois do risco ter passado. Você chama de temperamento. É mecanismo antigo que ninguém desativou.");
+ out.push({ camadaAlvo: 1, texto: "A desconexão que hoje parece 'jeito de ser' tem data de instalação. Começou como proteção num momento em que sentir doía demais pra função continuar. O problema é que o sistema nervoso não distingue 'proteção necessária' de 'economia permanente', ele manteve a anestesia mesmo depois do risco ter passado. Você chama de temperamento. É mecanismo antigo que ninguém desativou." });
  }
 
- // R19, Sabotador com superfície financeira/carreira (guardião da identidade, não inimigo)
+ // R19: Sabotador guardião → camada 2 (contrato com identidade familiar)
  else if (padrao === "sabotador" && ["financeiro","carreira"].includes(superficie)) {
- out.push("O sabotador não é inimigo interno, é guardião da identidade instalada. Ele sabe que você prometeu algo pros códigos da sua infância: não ultrapassar o patamar da família, não virar 'de outro tipo', não trair a régua de quem te criou. Cada sabotagem é cumprimento de contrato. O contrato foi assinado quando você ainda não tinha idade pra ler, mas continua válido pro sistema que o guarda.");
+ out.push({ camadaAlvo: 2, texto: "O sabotador não é inimigo interno, é guardião da identidade instalada. Ele sabe que você prometeu algo pros códigos da sua infância: não ultrapassar o patamar da família, não virar 'de outro tipo', não trair a régua de quem te criou. Cada sabotagem é cumprimento de contrato. O contrato foi assinado quando você ainda não tinha idade pra ler, mas continua válido pro sistema que o guarda." });
  }
 
- // R20, Família funcional + ancestralidade alta (funcionamento externo esconde herança)
+ // R20: Família funcional + ancestralidade alta → camada 0 (Pré-Natal)
  if (a.BIO1 === "A" && (a.P_ANCESTRAL || 0) >= 3 && out.length < 3) {
- out.push("Sua família nuclear parecia funcional por fora. Pais juntos, sem grandes fraturas visíveis, contas pagas. Mas o código ancestral chegou por baixo da funcionalidade, traumas anteriores às suas memórias passaram pelo corpo dos seus pais e pelo seu. Funcionar externamente não cancela o que veio gravado antes do nascimento. Muita gente procura 'o evento' e não encontra porque ele não aconteceu com VOCÊ, aconteceu antes de você.");
+ out.push({ camadaAlvo: 0, texto: "Sua família nuclear parecia funcional por fora. Pais juntos, sem grandes fraturas visíveis, contas pagas. Mas o código ancestral chegou por baixo da funcionalidade, traumas anteriores às suas memórias passaram pelo corpo dos seus pais e pelo seu. Funcionar externamente não cancela o que veio gravado antes do nascimento. Muita gente procura 'o evento' e não encontra porque ele não aconteceu com VOCÊ, aconteceu antes de você." });
  }
 
  return out;
@@ -5148,6 +5196,73 @@ function gerarInferencias(perfilId, eixos, demo, answers) {
 
 
 // ═══════════════════════════════════════════════════════════════
+// CAMADA 3: ORQUESTRADOR V2 — gerarOutputV2()
+// Adapta o output legado de gerarInferencias para a estrutura nova B1-B5,
+// indexada por camada em vez de por seção. Não substitui gerarInferencias —
+// chama internamente e remapeia.
+// ═══════════════════════════════════════════════════════════════
+
+function gerarOutputV2(perfilId, eixos, demo, answers) {
+ const infLegado = gerarInferencias(perfilId, eixos, demo, answers);
+ const ocultosObj = inferirOculto(answers, demo, eixos); // [{texto, camadaAlvo}]
+ const niveis = eixos.niveis || [0,0,0,0,0];
+
+ // Indexar todas as 5 camadas com score, faixa, conteúdo, vetor, evidência, ocultos da camada
+ const porCamada = {};
+ for (let n = 0; n < 5; n++) {
+ const score = niveis[n] || 0;
+ const faixa = faixaIntensidade(score);
+ const conteudo = selecionarConteudoCamada(perfilId, n, score);
+ const vetorEntry = VETORES_NIVEL[n] || {};
+ // MVP: usa ativo por default; v1.0 vai mapear VETOR_DOMINANTE_POR_PERFIL
+ const vetor = vetorEntry.ativo || vetorEntry.passivo || "";
+ const evidencia = EMBASAMENTO_CIENTIFICO[n] || null;
+ const ocultosCamada = ocultosObj.filter(o => o.camadaAlvo === n).map(o => o.texto);
+ porCamada[n] = {
+ nivel: n,
+ score,
+ faixa,
+ nome: NOME_CAMADA_CURTO[n],
+ janela: JANELA_CAMADA[n],
+ label: LABEL_CAMADA[n],
+ manifestacao: conteudo.manifestacao,
+ fonte: conteudo.fonte,
+ vetor,
+ evidencia,
+ ocultos: ocultosCamada,
+ potencial: POTENCIAL_POR_CAMADA[n] || "",
+ };
+ }
+
+ // Ordenação: decrescente por score
+ const niveisOrdenados = [0,1,2,3,4].sort((a, b) => (niveis[b] || 0) - (niveis[a] || 0));
+ const camadasAtivas = niveisOrdenados.filter(n => (niveis[n] || 0) >= LIMIAR_CAMADA_ATIVA);
+ const camadasInativas = niveisOrdenados.filter(n => (niveis[n] || 0) < LIMIAR_CAMADA_ATIVA);
+
+ // Ocultos transversais (camadaAlvo === -1) ficam separados
+ const ocultosTransversais = ocultosObj.filter(o => o.camadaAlvo === -1).map(o => o.texto);
+
+ return {
+ porCamada,
+ niveisOrdenados,
+ camadasAtivas,
+ camadasInativas,
+ transversal: {
+ // S3 mecanismo neurológico/quântico continua hardcoded no render — passamos só o que varia
+ s3Inferencias: infLegado.s3 || [],
+ sequestroLogica: PERFIS[perfilId]?.sequestro_logica || "",
+ ocultosTransversais,
+ },
+ caminho: {
+ s6Inferencias: infLegado.s6 || [],
+ },
+ // Compatibilidade: manter referência ao output legado pra debug e fallback
+ _legado: infLegado,
+ };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // QUESTIONS (reaproveitadas do v6, UI funciona bem)
 // ═══════════════════════════════════════════════════════════════
 
@@ -5571,372 +5686,158 @@ function DiagnosticoOutput({ answers, result }) {
  const DIV = () => <div style={{ width: 60, height: 1, background: C.blueBorder, margin: "0 auto 52px" }} />;
  const SCI = (t) => t ? (<div style={{ background: "rgba(10,18,35,0.5)", border: `1px solid ${C.cardBorder}`, borderRadius: 12, padding: "22px 26px", margin: "18px 0", fontSize: 18, lineHeight: 1.85, color: C.textMid }}>{t}</div>) : null;
 
+ // v40 redesign: gera estrutura indexada por camada (B1-B5) substituindo o output legado focado em perfil (S0-S6)
+ const v2 = gerarOutputV2(perfilId, eixos, demo, answers);
+
  return (
  <div style={{ minHeight: "100vh", background: `linear-gradient(170deg,${C.bg1} 0%,${C.bg2} 40%,${C.bg3} 100%)`, color: C.text, fontFamily: "'Crimson Text','Georgia',serif" }}>
- <style>{`@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&display=swap');*{box-sizing:border-box}.dep-card{background:rgba(10,18,35,0.5);border:1px solid ${C.cardBorder};border-radius:12px;padding:26px;margin:14px 0}`}</style>
+ <style>{`@import url('https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&display=swap');*{box-sizing:border-box}`}</style>
  <div style={{ maxWidth: 700, margin: "0 auto", padding: "60px 24px 80px" }}>
 
- {/* ══════ HEADER ══════ */}
- <div style={{ textAlign: "center", marginBottom: 56 }}>
+ {/* ══════ HEADER (v40 redesign) ══════ */}
+ <div style={{ textAlign: "center", marginBottom: 48 }}>
  <AscensaoHeader />
  <div style={{ height: 24 }} />
- <h1 style={{ fontSize: "clamp(30px,5vw,40px)", fontWeight: 700, lineHeight: 1.3, marginBottom: 24, background: `linear-gradient(135deg,${C.text},${C.textMid})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Diagnóstico da sua Identidade</h1>
+ <h1 style={{ fontSize: "clamp(28px,4.5vw,38px)", fontWeight: 700, lineHeight: 1.3, marginBottom: 18, background: `linear-gradient(135deg,${C.text},${C.textMid})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+ Diagnóstico das suas interferências
+ </h1>
+ <p style={{ fontSize: 16, color: C.textMid, fontStyle: "italic", maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
+ {nome}, mapeamos 5 camadas onde experiências formam padrões. Em você, {v2.camadasAtivas.length} {v2.camadasAtivas.length === 1 ? "está ativa" : "estão ativas"} e operando hoje.
+ </p>
  </div>
 
- {/* ══════ S0, DIAGNÓSTICO DA IDENTIDADE, G7-FIX: calibrado por intensidade ══════ */}
+ {/* ══════ B1, MAPA DAS 5 CAMADAS ══════ */}
  {SEC(null, <>
- {intensidade_global === "leve" ? (
- <>
- {P(`${nome}, a leitura aqui é mais sutil do que severa. Não aparecem camadas densas dominando a sua identidade, aparecem marcas discretas, ativas em momentos específicos. Isso não é "nada". É o estado em que a intervenção rende mais, porque a interferência ainda não enraizou.`, { fontSize: 21 })}
- {P("O perfil identificado é um ponto de partida, não uma sentença:", { color: C.textMid })}
- {HL(perfilNome)}
- {P("Use essa leitura como mapa de atenção, onde observar, não onde se diagnosticar.", { color: C.textMid })}
- </>
- ) : (
- <>
- {P(`${nome}, se você sente que tá travad${demo.suf}, que tenta sair do lugar e algo te puxa de volta, o que as suas respostas revelaram é o porquê. Não é uma característica sua. É um padrão de identidade completo, montado por camadas que chegaram antes que você pudesse escolher.`, { fontSize: 21 })}
-
- {/* Perfil-card visual com chips, v11 */}
- {(() => {
- const IDADE_LABEL = {"<18":"menos de 18","18-24":"18-24","25-34":"25-34","35-44":"35-44","45-54":"45-54","55-64":"55-64","65+":"65+"};
- const RENDA_LABEL = {"0":"Sem renda","1k":"até R$1k","2k":"R$1-2k","5k":"R$2-5k","10k":"R$5-10k","20k":"R$10-20k","50k":"R$20-50k","100k":"R$50-100k","100k+":"acima R$100k"};
- const OCUP_LABEL = {clt:"CLT",autonomo:"Autônomo(a)",empresario:"Empresário(a)",aposentado:"Aposentado(a)",desempregado:"Em transição",estudante:"Estudante",dolar:"Do lar"};
- const FAMILIA_LABEL = {sozinho:"Mora só",casal_sem:"Casal sem filhos",casal_filhos:"Casal com filhos",solo:"Mãe/Pai solo",familiares:"Mora com familiares"};
- const CIVIL_LABEL = {solteiro:"Solteiro(a)",namorando:"Namorando",casado:"Casado(a)",divorciado:"Divorciado(a)",viuvo:"Viúvo(a)"};
- const GEN_LABEL = {M:"Masculino",F:"Feminino",O:"Outro"};
- const SUP_LABEL = {financeiro:"Financeiro",relacional:"Relacional",familiar:"Familiar",carreira:"Carreira",saude:"Saúde",emocional:"Emocional",espiritual:"Espiritual"};
- const CRON_LABEL = {"crônico":"crônico","acumulado":"acumulado","recente":"recente"};
- const PADRAO_LABEL = {sabotador:"Sabotador",paralisado:"Paralisado(a)",anestesiado:"Anestesiado(a)",esgotado:"Esgotado(a)",repetidor:"Repetidor(a)",comparador:"Comparador(a)"};
- const LOCAL_LABEL = answers.Q_LOCAL === "fora" ? "Fora do Brasil" : "Brasil";
-
- const chips = [
- { label: "Faixa etária", value: IDADE_LABEL[answers.Q_IDADE] || "—" },
- { label: "Gênero", value: GEN_LABEL[demo.gen] || "—" },
- { label: "Situação", value: FAMILIA_LABEL[demo.familia] || "—" },
- { label: "Ocupação", value: OCUP_LABEL[demo.ocup] || "—" },
- { label: "Renda", value: RENDA_LABEL[answers.Q_RENDA] || "—" },
- { label: "Local", value: LOCAL_LABEL },
- { label: "Superfície afetada", value: SUP_LABEL[eixos.superficie] || "—" },
- { label: "Cronicidade", value: CRON_LABEL[eixos.cronicidade_label] || "—" },
- ];
-
- return (
- <div style={{ background: `linear-gradient(135deg, rgba(77,166,255,0.10), rgba(77,166,255,0.04))`, border: `1px solid ${C.blueBorder}`, borderRadius: 16, padding: "32px 28px", margin: "32px 0 28px", textAlign: "center" }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 700, color: C.blue, letterSpacing: 3, textTransform: "uppercase", marginBottom: 10 }}>Perfil Mapeado</p>
- <h2 style={{ fontFamily: "'Crimson Text',serif", fontSize: "clamp(26px,4.5vw,34px)", fontWeight: 700, lineHeight: 1.2, color: "#fff", marginBottom: 6 }}>
- {perfilNome}
- </h2>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: C.textMid, fontStyle: "italic", marginBottom: 22 }}>
- Padrão de defesa dominante: <strong style={{ color: C.blue, fontStyle: "normal" }}>{PADRAO_LABEL[eixos.padrao] || eixos.padrao}</strong>
+ <div style={{ background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 16, padding: "28px 24px", margin: "0 0 28px" }}>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 700, color: C.blue, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Mapa das 5 camadas</p>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: C.textMid, lineHeight: 1.6, marginBottom: 22, paddingBottom: 16, borderBottom: `1px solid ${C.cardBorder}` }}>
+ Quanto mais alta a barra, mais aquela camada pesa nos seus padrões hoje. Camadas com sinal mais leve aparecem listadas no rodapé.
  </p>
- <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingTop: 18, borderTop: `1px solid ${C.blueBorder}` }}>
- {chips.map((chip, i) => (
- <div key={i} style={{ background: "rgba(10,18,35,0.55)", border: `1px solid ${C.cardBorder}`, borderRadius: 20, padding: "6px 12px", display: "inline-flex", alignItems: "baseline", gap: 6 }}>
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 10, color: C.textDim, letterSpacing: 1, textTransform: "uppercase" }}>{chip.label}</span>
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, color: C.text, fontWeight: 600 }}>{chip.value}</span>
- </div>
- ))}
- </div>
- </div>
- );
- })()}
-
- {P("Cada uma dessas camadas foi instalada num período específico da sua vida, por agentes específicos. Nenhuma delas foi decisão sua. E juntas, elas construíram a identidade que opera hoje: a que filtra as suas decisões, as suas reações e os resultados que se repetem mesmo quando você tenta diferente.", { color: C.textMid })}
- {P("Essa é a sua Trilha do EU SOU: o código-mestre a partir do qual toda decisão, toda ação e todo resultado da sua vida opera.", { color: C.textMid })}
- </>
- )}
-
- {/* Mapa de interferência, v13: sem rótulos Dominante/Reforçadora/Base, intensidade mostrada pela barra */}
- {(() => {
- const liderNivel = eixos.niveis_sorted[0].nivel;
- const intensidadeCor = (score) => {
- if (score >= 2.8) return C.blue;
- if (score >= 1.6) return "#7ab8ff";
- if (score >= 0.8) return "#4a6890";
- return C.blueBorder;
- };
+ {v2.niveisOrdenados.map(n => {
+ const c = v2.porCamada[n];
+ const ativa = c.score >= LIMIAR_CAMADA_ATIVA;
+ const cor = c.faixa === "alta" ? C.blue : c.faixa === "media" ? "#7ab8ff" : "#4a6890";
+ if (!ativa) return null;
  return (
- <div style={{ background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 16, padding: "28px 24px", margin: "28px 0" }}>
- <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 700, color: C.blue, letterSpacing: 2, textTransform: "uppercase", margin: 0 }}>Mapa de Interferência</p>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 10, color: C.textDim, margin: 0, letterSpacing: 0.5 }}>do mais profundo ao mais difuso</p>
+ <div key={"b1_" + n} style={{ marginBottom: 14 }}>
+ <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: "#fff", fontWeight: 700, flex: 1 }}>{c.nome}</span>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 10, color: C.textDim, letterSpacing: 0.5 }}>{c.janela}</span>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: cor, fontWeight: 700, width: 36, textAlign: "right" }}>{c.score.toFixed(1)}</span>
  </div>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: C.textMid, lineHeight: 1.6, marginBottom: 20, paddingBottom: 16, borderBottom: `1px solid ${C.cardBorder}` }}>
- As cinco camadas universais da interferência. Quanto mais alta a barra, mais forte essa camada pesou na construção da sua identidade atual.
- </p>
- {eixos.niveis.map((score, i) => {
- const isLider = i === liderNivel;
- const cor = intensidadeCor(score);
- // v32: blur nas camadas não-dominantes (só o nome + score). Tooltip revela suspense.
- const blurStyle = !isLider ? { filter: "blur(6px)", cursor: "help", transition: "filter 0.3s" } : {};
- const tooltip = !isLider ? "Será revelada ao vivo no dia 27, às 20h" : undefined;
- return (
- <div key={i} style={{ marginBottom: 14 }}>
- <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }} title={tooltip}>
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: isLider ? "#fff" : C.text, fontWeight: isLider ? 700 : 500, flex: 1, ...blurStyle }}>
- {NOME_CAMADA_CURTO[i]}
- </span>
- {isLider && score >= 1.6 && (
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 9, fontWeight: 700, color: C.blue, letterSpacing: 1.5, background: "rgba(77,166,255,0.1)", padding: "3px 8px", borderRadius: 10, border: `1px solid ${C.blue}40` }}>
- A mais ativa
- </span>
- )}
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: cor, fontWeight: 700, width: 34, textAlign: "right", ...blurStyle }}>
- {score.toFixed(1)}
- </span>
- </div>
- <div style={{ height: 10, background: C.blueGlow2, borderRadius: 5, overflow: "hidden" }}>
- <div style={{
- width: `${Math.min(100, (score / 4.5) * 100)}%`,
- height: "100%",
- background: isLider ? `linear-gradient(90deg,${C.blue},${C.blueDark})` : cor,
- borderRadius: 5,
- transition: "width 1s ease",
- }} />
+ <div style={{ height: 9, background: C.blueGlow2, borderRadius: 4, overflow: "hidden" }}>
+ <div style={{ width: `${Math.min(100, (c.score/4.5)*100)}%`, height: "100%", background: cor, borderRadius: 4, transition: "width 1s ease" }} />
  </div>
  </div>
  );
  })}
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, color: C.textDim, fontStyle: "italic", marginTop: 16, textAlign: "center" }}>
- A sua camada predominante será descrita em profundidade na próxima seção, com o estudo científico por trás. As demais camadas serão reveladas ao vivo no dia 27.
+ {v2.camadasInativas.length > 0 && (
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, color: C.textDim, fontStyle: "italic", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.cardBorder}` }}>
+ Camadas com sinal mais leve hoje: {v2.camadasInativas.map(n => v2.porCamada[n].nome).join(", ")}.
  </p>
- </div>
- );
- })()}
-
- {/* v32: S0+S1 fundidos, retrato começa direto aqui, sem feedback S0 nem título "O Retrato" */}
-
- {/* Retrato primeira metade (parágrafos 0 a N/2) */}
- {(() => {
- const meio = Math.ceil(perfil.retrato.length / 2);
- return perfil.retrato.slice(0, meio).map((t, i) => P(t, { key: "ret_a_" + i }));
- })()}
-
- {/* Cena de reconhecimento, gatilho sensorial no MEIO do retrato */}
- {CENAS_PERFIL[perfilId] && (
- <div style={{ background: "rgba(10,18,35,0.7)", border: `1px solid ${C.blueBorder}`, borderRadius: 12, padding: "24px 28px", margin: "20px 0 28px" }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 600, color: C.blue, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>Uma cena típica desse perfil</p>
- <p style={{ fontSize: 18, lineHeight: 1.8, color: C.text, fontStyle: "italic" }}>{CENAS_PERFIL[perfilId]}</p>
- </div>
  )}
-
- {/* Retrato segunda metade (restante após a cena) */}
- {(() => {
- const meio = Math.ceil(perfil.retrato.length / 2);
- return perfil.retrato.slice(meio).map((t, i) => P(t, { key: "ret_b_" + i }));
- })()}
-
- {/* Reframe (Pattern 1, "Não é X. É Y.") */}
- {reframe && HL(reframe.frase)}
-
- {/* Predições ocultas, base + cruzadas com demográfico (v10) */}
- {(() => {
- const predicoes = montarPredicoes(perfilId, demo, answers, eixos.padrao);
- if (predicoes.length === 0) return null;
- return (
- <div style={{ marginTop: 28, marginBottom: 28 }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, fontWeight: 600, color: C.blue, letterSpacing: 2, textTransform: "uppercase", marginBottom: 18 }}>O que esse perfil quase sempre vive, mesmo sem ter declarado</p>
- {predicoes.map((pred, i) => (
- <div key={"pred_" + i} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: "10px 0", borderBottom: i < predicoes.length - 1 ? `1px solid ${C.cardBorder}` : "none" }}>
- <span style={{ color: C.blue, fontSize: 14, lineHeight: 1.8, flexShrink: 0, marginTop: 2 }}>◆</span>
- <p style={{ fontSize: 17, lineHeight: 1.7, color: C.textMid, margin: 0 }}>{pred}</p>
  </div>
- ))}
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, color: C.textDim, marginTop: 16, fontStyle: "italic", textAlign: "center" }}>Quantas você reconheceu? Quanto mais, mais profundo o código está operando.</p>
- </div>
- );
- })()}
-
- {/* v31: inferencias.s1 migradas pro S2 "Onde ela se manifesta". Retrato fica enxuto: cena+retrato+reframe+predições */}
  </>)}
- <FeedbackBloco blocoId="S1" label="O retrato e as predições te descrevem?" />
- {DIV()}
 
- {/* ══════ S2, SUAS CAMADAS DE INTERFERÊNCIA, v31: reestruturado em "Como ela se instalou" + "Onde ela se manifesta" ══════ */}
- {SEC("Suas Camadas de Interferência", <>
- {(() => {
- const nivelDomIdx = eixos.niveis_sorted[0].nivel;
- const narrativaDom = CAMADAS_POR_PERFIL[perfilId]?.[nivelDomIdx];
- const narrativaGenDom = NARRATIVAS_NIVEL[nivelDomIdx]?.[eixos.niveis_sorted[0].score >= 2.8 ? "alta" : "media"];
- const narrativaPrincipal = narrativaDom || narrativaGenDom;
- const vetoresDom = VETORES_NIVEL[nivelDomIdx];
- const embasamentoDom = EMBASAMENTO_CIENTIFICO[nivelDomIdx];
- const manifestacao = manifestacaoPerfilCamada(perfilId, nivelDomIdx);
-
+ {/* ══════ B2, INTERFERÊNCIAS DETALHADAS POR CAMADA ATIVA ══════ */}
+ {SEC("Como cada interferência opera em você", <>
+ {v2.camadasAtivas.length === 0 ? (
+ <>{P("As suas camadas estão com sinal mais leve. Não há nenhuma dominante hoje, o que normalmente indica terreno fértil pra intervenção precoce, antes de qualquer interferência se calcificar.", { color: C.textMid })}</>
+ ) : v2.camadasAtivas.map(n => {
+ const c = v2.porCamada[n];
  return (
- <>
- {/* Intro nova */}
- {P("Existem 5 níveis de camadas de interferência que eu irei explicar no dia 27 às 20h. Porém, aqui nesse diagnóstico eu vou me concentrar em te explicar a camada que mais pesou na formação da sua identidade atual.")}
-
- {/* Bloco principal, camada dominante */}
- <div style={{ marginTop: 28, marginBottom: 32, paddingLeft: 22, borderLeft: `3px solid ${C.blue}` }}>
- {/* Prefixo INTERFERÊNCIA: + nome da camada */}
- <h4 style={{ fontFamily: "'Crimson Text',serif", fontSize: 26, fontWeight: 600, color: "#fff", marginBottom: 16, lineHeight: 1.3 }}>
- <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 700, color: C.blue, letterSpacing: 2.5, textTransform: "uppercase", display: "block", marginBottom: 6 }}>
- Interferência
+ <div key={"b2_" + n} style={{ marginBottom: 36, paddingLeft: 22, borderLeft: `3px solid ${C.blue}` }}>
+ <h4 style={{ fontFamily: "'Crimson Text',serif", fontSize: 24, fontWeight: 600, color: "#fff", marginBottom: 18, lineHeight: 1.3 }}>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 700, color: C.blue, letterSpacing: 2.5, textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+ Interferência · {c.janela} · Intensidade {c.faixa}
  </span>
- {NOME_CAMADA_CURTO[nivelDomIdx]}
+ {c.nome}
  </h4>
 
- {/* Texto descritivo consolidado (descrição da camada + contexto theta) */}
- {narrativaPrincipal && (
- <p style={{ fontFamily: "'Crimson Text',serif", fontSize: 18, lineHeight: 1.8, color: C.textMid, marginBottom: 28, fontStyle: "italic" }}>
- {narrativaPrincipal}
- </p>
- )}
-
- {/* Como ela se instalou em você, v33: apenas vetores puros (sem concatenar manifestacao pra eliminar redundância com a epígrafe) */}
- {vetoresDom && (
- <>
- {PB("Como ela se instalou em você")}
- <div style={{ marginBottom: 14 }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 700, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>
- Ação direta
- </p>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, lineHeight: 1.7, color: C.textMid, margin: 0 }}>
- {vetoresDom.ativo}
- </p>
- </div>
- <div>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 700, color: C.textDim, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>
- Ação indireta
- </p>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, lineHeight: 1.7, color: C.textMid, margin: 0 }}>
- {vetoresDom.passivo}
- </p>
- </div>
- </>
- )}
-
- {/* Embasamento científico */}
- {embasamentoDom && (
- <div style={{ background: "rgba(77,166,255,0.04)", border: `1px dashed ${C.blueBorder}`, borderRadius: 10, padding: "14px 18px", margin: "22px 0 4px" }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 600, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>
- Evidência científica · {embasamentoDom.estudo}
- </p>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, lineHeight: 1.7, color: C.textMid, margin: 0 }}>
- {embasamentoDom.descricao}
- </p>
- </div>
- )}
- </div>
-
- {/* Subtítulo: Onde ela se manifesta, recebe inferencias.s1 migradas + manif[2] + s2 de perfil */}
- {PB("Onde ela se manifesta")}
-
- {/* Frases que vieram do S1 (cruzamento dinâmico padrão × superfície/ocup + G4 + G1) */}
- {inferencias.s1.map((t, i) => P(t, { color: C.textMid, key: "s2_mani_s1_" + i }))}
-
- {/* Como aparece hoje (da MANIFESTACAO_PERFIL_CAMADA) */}
- {manifestacao && manifestacao[2] && P(manifestacao[2], { color: C.textMid, key: "s2_mani_hoje" })}
-
- {/* Inferências S2 de perfil (slice -2 prioriza as mais específicas) */}
- {inferencias.s2.slice(-2).map((t, i) => P(t, { color: C.textMid, key: "s2_extra_" + i }))}
-
- {/* v35 W1, Inferências cruzadas (inferirOculto): revelações sobre o que NÃO foi declarado */}
- {inferencias.ocultos && inferencias.ocultos.length > 0 && (
- <div style={{ marginTop: 28, paddingTop: 22, borderTop: `1px dashed ${C.blueBorder}` }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 700, color: C.blue, letterSpacing: 2, textTransform: "uppercase", marginBottom: 14 }}>
- O que o cruzamento revela
- </p>
- {inferencias.ocultos.map((t, i) => P(t, { color: C.textMid, key: "s2_oculto_" + i, fontStyle: "italic" }))}
- </div>
- )}
- </>
- );
- })()}
- </>)}
- <FeedbackBloco blocoId="S2" label="As camadas descritas fazem sentido pra você?" />
- {DIV()}
-
- {/* ══════ S3, PADRÕES DE REGRESSÃO, v31: ordem invertida (manifestações primeiro, teoria depois) ══════ */}
- {SEC("Padrões de Regressão", <>
- {/* ─── BLOCO A: MANIFESTAÇÕES PRIMEIRO (sem intro teórica) ─── */}
- {inferencias.s3.slice(0, 2).map((t, i) => SCI(t))}
- {SCI(perfil.sequestro_logica)}
- {inferencias.s3.slice(2).map((t, i) => P(t, { color: C.textMid, key: "s3b_" + i }))}
-
- {/* ─── BLOCO B: MAS O QUE É REGRESSÃO? (teoria depois) ─── */}
- <div style={{ marginTop: 32 }}>
- {PB("Mas o que é regressão?")}
- {P("É o sistema de defesa construído para proteger a identidade instalada.", { fontWeight: 600 })}
- {P("A regressão não é fraqueza. Não é falta de fé. Não é sabotagem consciente. É um mecanismo de proteção, a resposta automática de dois sistemas operando simultaneamente.", { color: C.textMid })}
- </div>
-
- {/* v33: HL movido pra cá, enuncia o problema ANTES de abrir os dois mecanismos que explicam por quê */}
- {HL("Enquanto a regressão não for interrompida onde ela opera, qualquer mudança volta pra origem em dias ou semanas. Não porque você falhou. Porque o mecanismo corrigiu.")}
-
- {/* Mecanismo Neurológico */}
- <div style={{ marginTop: 24 }}>
- {PB("O mecanismo neurológico")}
- {P("O cérebro não sabe se a identidade instalada é boa ou ruim pra você. Ele sabe apenas que é a identidade que ele conhece, e que é tarefa dele protegê-la. A Rede Neural Padrão terminou de ser construída aos 12 anos pra defender exatamente o que foi instalado antes disso. Toda informação nova que contradiz essa identidade é rejeitada antes de chegar à consciência. E o corpo também participa: depois de anos na frequência antiga, o sistema hormonal vicia na bioquímica do padrão. Quando você muda, o corpo lê como ameaça e puxa de volta.", { color: C.textMid })}
-
- <div style={{ background: "rgba(77,166,255,0.04)", border: `1px dashed ${C.blueBorder}`, borderRadius: 10, padding: "14px 18px", margin: "14px 0 4px" }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 600, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>Evidência científica · Kaplan, Gimbel & Harris, Scientific Reports, 2016</p>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, lineHeight: 1.7, color: C.textMid, margin: 0 }}>Quando crenças pessoais são desafiadas, a Rede Neural Padrão (Raichle, PNAS 2001) ativa uma resposta defensiva mensurável. Quanto maior a autoridade percebida de quem instalou a crença, maior a resistência do cérebro a atualizá-la.</p>
- </div>
- </div>
-
- {/* Mecanismo Quântico */}
- <div style={{ marginTop: 24 }}>
- {PB("O mecanismo quântico")}
- {P("O campo também se reorganiza pra corresponder à frequência dominante da identidade. Não porque pune ou recompensa. Porque é lei. A mesma lei que rege o cérebro rege o cosmos.", { color: C.textMid })}
- {P("Não é o universo dizendo não. É o universo sendo justo, entregando o que a frequência dominante da identidade pede. Sempre. Sem exceção. Sem julgamento moral.", { color: C.textMid })}
-
- <div style={{ background: "rgba(77,166,255,0.04)", border: `1px dashed ${C.blueBorder}`, borderRadius: 10, padding: "14px 18px", margin: "14px 0 4px" }}>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 600, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>Evidência científica · HeartMath Institute, pesquisa sobre coerência cardíaca</p>
- <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, lineHeight: 1.7, color: C.textMid, margin: 0 }}>O Instituto HeartMath demonstrou que o coração produz um campo eletromagnético até 5.000x mais potente que o do cérebro. Esse campo emite um sinal mensurável a até 7 metros em estado de coerência, e se reorganiza junto com o estado interno dominante.</p>
- </div>
- </div>
- </>)}
- <FeedbackBloco blocoId="S3" label="Esse mecanismo explica o que você vive?" />
- {DIV()}
-
- {/* ══════ S4, SUA IDENTIDADE DESSINTONIZADA, v31: título invertido + intro enxuta ══════ */}
- {SEC("Sua Identidade Dessintonizada", <>
- {P("Tudo isso CONSTRUIU uma identidade. É o \"EU SOU\" a partir do qual tudo opera.")}
- {P("A identidade que a interferência construiu em você diz:")}
- {HL(`"${euSouPorPadrao(perfilId, eixos.padrao) || perfil.eu_sou}"`)}
-
- {/* v11-FIX: bloco "Onde esse perfil se encaixa no mecanismo" removido, revelava termos sem contexto */}
-
- {/* Inferências S4 */}
- {inferencias.s4.map((t, i) => P(t, { color: C.textMid, key: "s4_" + i }))}
-
- {/* v15: bloco "Identidade Secundária" removido. Traços do perfil secundário agora são absorvidos no S2 sem nomear. */}
-
- {P("Enquanto a identidade estiver sintonizada com a realidade que você VIVE, e não com a que QUER: a interferência vai continuar gerando regressão.", { fontWeight: 600, marginTop: 28 })}
- {P("Não é culpa sua. Não é azar. É interferência, e tem como remover.", { color: C.textMid, fontStyle: "italic" })}
- </>)}
- <FeedbackBloco blocoId="S4" label="O 'EU SOU' desse perfil bate com você?" />
- {DIV()}
-
- {/* ══════ S5, QUEM JÁ ESTEVE AQUI ══════ */}
- {SEC("Quem já esteve onde você está", <>
- {P(`Já ajudamos pessoas com o mesmo perfil que viviam o mesmo ciclo.`)}
- {selecionarDepoimentos(perfil.depoimentos, demo).map((d, i) => (
- <div key={i} className="dep-card">
- <p style={{ fontSize: 19, lineHeight: 1.75, color: C.textMid, fontStyle: "italic" }}>"{d.texto}"</p>
- <p style={{ fontSize: 15, color: C.blue, marginTop: 14, fontFamily: "'Outfit',sans-serif" }}>
- , {d.autor}
- {d.contexto && <span style={{ color: C.textDim, fontSize: 13, fontWeight: 400 }}> · {d.contexto}</span>}
- </p>
- </div>
+ {c.manifestacao.map((p, i) => (
+ <p key={"mf_" + n + "_" + i} style={{ fontSize: 17, lineHeight: 1.8, color: C.textMid, marginBottom: 14 }}>{p}</p>
  ))}
+
+ {c.vetor && (
+ <div style={{ background: "rgba(10,18,35,0.5)", border: `1px solid ${C.cardBorder}`, borderRadius: 8, padding: "12px 16px", margin: "18px 0" }}>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 10, fontWeight: 700, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Vetor de instalação</p>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 13, lineHeight: 1.6, color: C.textMid, margin: 0 }}>{c.vetor}</p>
+ </div>
+ )}
+
+ {c.evidencia && c.faixa === "alta" && (
+ <div style={{ background: "rgba(77,166,255,0.04)", border: `1px dashed ${C.blueBorder}`, borderRadius: 8, padding: "12px 16px", margin: "12px 0" }}>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 10, fontWeight: 600, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>Evidência · {c.evidencia.estudo}</p>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 12, lineHeight: 1.6, color: C.textMid, margin: 0 }}>{c.evidencia.descricao}</p>
+ </div>
+ )}
+
+ {c.ocultos.length > 0 && (
+ <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px dashed ${C.blueBorder}` }}>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 10, fontWeight: 700, color: C.blue, letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>O que o cruzamento revela</p>
+ {c.ocultos.map((t, i) => (
+ <p key={"oc_" + n + "_" + i} style={{ fontSize: 14, lineHeight: 1.7, color: C.textMid, fontStyle: "italic", marginBottom: 10 }}>{t}</p>
+ ))}
+ </div>
+ )}
+ </div>
+ );
+ })}
  </>)}
- <FeedbackBloco blocoId="S5" label="Os relatos soam como a sua história?" />
+ <FeedbackBloco blocoId="FB1" label="As interferências mapeadas fazem sentido pra você?" />
  {DIV()}
 
- {/* ══════ S6, O CAMINHO, v18: léxico orgânico (travado/tentei tudo/não voltar) ══════ */}
+ {/* ══════ B3, PADRÃO POR BAIXO DE TODAS ELAS (sem nome de perfil) ══════ */}
+ {SEC("O padrão por baixo de todas elas", <>
+ {v2.transversal.s3Inferencias.slice(0, 2).map((t, i) => SCI(typeof t === "string" ? t.replace(/no\(a\)\s+[A-ZÀ-Ú][^,]+,/gi, "nesta configuração,").replace(/Sobrevivente de Relação Narcisista|Empreendedor com Teto Invisível|Herdeiro do Trauma|Fiel Dividido|Empresário com Vazio Existencial|Curador Ferido|esse perfil/gi, "esta configuração") : t))}
+
+ {PB("Por que a regressão acontece")}
+ {P("Independentemente da camada que mais pesa, o que acontece quando uma identidade instalada é confrontada é universal: o cérebro não distingue 'identidade boa' de 'identidade conhecida' — ele protege a que está. A Rede Neural Padrão é construída pra defender o que foi instalado antes dos 12 anos. E o corpo participa: depois de anos numa frequência, o sistema hormonal vicia na bioquímica do padrão. Quando você muda, o corpo lê como ameaça e puxa de volta.", { color: C.textMid })}
+
+ <div style={{ background: "rgba(77,166,255,0.04)", border: `1px dashed ${C.blueBorder}`, borderRadius: 10, padding: "14px 18px", margin: "14px 0 4px" }}>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 600, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>Evidência · Kaplan, Gimbel & Harris (Scientific Reports, 2016) + HeartMath Institute</p>
+ <p style={{ fontFamily: "'Outfit',sans-serif", fontSize: 14, lineHeight: 1.7, color: C.textMid, margin: 0 }}>Crenças desafiadas ativam resposta defensiva mensurável na Rede Neural Padrão (Raichle, 2001). E o coração, que produz campo eletromagnético até 5.000x mais potente que o cérebro, se reorganiza junto com o estado interno dominante. Cérebro e corpo operam na mesma direção pra manter o padrão antigo.</p>
+ </div>
+
+ {HL("Enquanto a interferência não for interrompida onde ela opera, qualquer mudança volta pra origem em dias ou semanas. Não porque você falhou. Porque o mecanismo corrigiu.")}
+
+ {v2.transversal.ocultosTransversais.length > 0 && (
+ <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px dashed ${C.blueBorder}` }}>
+ {v2.transversal.ocultosTransversais.map((t, i) => (
+ <p key={"otr_" + i} style={{ fontSize: 16, lineHeight: 1.75, color: C.textMid, fontStyle: "italic", marginBottom: 14 }}>{t}</p>
+ ))}
+ </div>
+ )}
+ </>)}
+
+ {/* ══════ B4, POTENCIAL POR CAMADA (substitui EU SOU) ══════ */}
+ {SEC("O que se libera quando cada camada é integrada", <>
+ {P("Cada interferência mapeada bloqueia algo específico. Quando ela é acessada e integrada, esse algo passa a operar:", { color: C.textMid })}
+ <div style={{ marginTop: 20 }}>
+ {v2.camadasAtivas.map(n => {
+ const c = v2.porCamada[n];
+ return (
+ <div key={"b4_" + n} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "14px 0", borderBottom: `1px solid ${C.cardBorder}` }}>
+ <span style={{ fontFamily: "'Outfit',sans-serif", fontSize: 11, fontWeight: 700, color: C.blue, letterSpacing: 1.5, textTransform: "uppercase", minWidth: 140, flexShrink: 0, paddingTop: 3 }}>{c.nome}</span>
+ <p style={{ fontSize: 16, lineHeight: 1.7, color: C.text, margin: 0 }}>{c.potencial}</p>
+ </div>
+ );
+ })}
+ </div>
+ {P("Não é uma promessa de transformação automática. É a descrição do que essa camada está bloqueando agora, e o que se torna possível quando ela deixa de bloquear.", { color: C.textDim, fontStyle: "italic", marginTop: 24 })}
+ </>)}
+ <FeedbackBloco blocoId="FB2" label="Esse padrão e o potencial fazem sentido pra você?" />
+ {DIV()}
+
+ {/* ══════ B5, O CAMINHO ══════ */}
  {SEC(null, <>
- {P("Você entendeu o que opera dentro de você. A pergunta agora é outra.")}
- {PB("Como remover uma identidade que não foi sua escolha?")}
+ {P("Você entendeu o que opera por dentro. A pergunta agora é outra.")}
+ {PB("Como remover interferências que não foram sua escolha?")}
  {P("Você já tentou coisas. Terapia, cursos, livros, mudar hábitos, outras abordagens. Algumas funcionaram por umas semanas. Depois voltou tudo. Isso não é falha sua. É a camada errada sendo acessada.", { color: C.textMid })}
- {P("Existe um caminho que acessa essa camada específica. Age onde a identidade foi instalada, no emocional, no sistema nervoso e nas marcas herdadas pelo corpo. Não é motivação. Não é pensamento positivo. Não é mais uma técnica pra tentar.")}
+ {P("Existe um caminho que acessa cada camada onde ela foi instalada, no emocional, no sistema nervoso e nas marcas herdadas pelo corpo. Não é motivação. Não é pensamento positivo. Não é mais uma técnica pra tentar.")}
  {P("E isso não se faz sozinho. Tem um motivo técnico pra isso, que você vai entender no dia 27, junto com a prática conduzida ao vivo.", { color: C.textMid, fontStyle: "italic" })}
 
- {/* Inferências S6 personalizadas (urgência + P_META) */}
- {inferencias.s6.map((t, i) => P(t, { color: C.textDim, key: "s6_" + i }))}
+ {v2.caminho.s6Inferencias.map((t, i) => P(t, { color: C.textDim, key: "b5_s6_" + i }))}
 
  <div style={{ background: C.blueGlow, border: `1px solid ${C.blueBorder}`, borderRadius: 16, padding: "36px 30px", marginTop: 36, textAlign: "center" }}>
  <AscensaoHeader compact />
@@ -5949,7 +5850,7 @@ function DiagnosticoOutput({ answers, result }) {
  </div>
 
  {P("A sua lógica vai te dar 10 motivos pra não ir. É o mesmo mecanismo que acabou de ser descrito aqui, agindo de novo, em tempo real. Ouça a parte de você que quer se libertar. Não a voz que quer te proteger do risco de mudar.", { textAlign: "center", marginTop: 28, fontStyle: "italic", color: C.textDim })}
- <FeedbackBloco blocoId="S6" label="O caminho proposto te conecta?" />
+ <FeedbackBloco blocoId="FB3" label="O caminho proposto te conecta?" />
  </>)}
  </div>
  </div>
